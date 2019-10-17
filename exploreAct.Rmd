@@ -1,0 +1,383 @@
+---
+title: "ProsperLoan公司运营及风险分析"
+author: "Xuncheng Wang"
+output: html_document
+---
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+# Load all of the packages that you end up using
+# in your analysis in this code chunk.
+
+# Notice that the parameter "echo" was set to FALSE for this code chunk.
+# This prevents the code from displaying in the knitted HTML output.
+# You should set echo=FALSE for all code chunks in your file.
+
+library(dplyr)
+library(ggplot2)
+
+knitr::opts_chunk$set(echo=FALSE)
+knitr::opts_chunk$set(warning=FALSE)
+knitr::opts_chunk$set(message=FALSE)
+```
+
+```{r include=FALSE, Setup}
+df <- read.csv('prosperLoanData.csv')[,c("ListingKey",
+                                         "ListingCreationDate",
+                                         "CreditGrade",
+                                         "Term",
+                                         "LoanStatus",
+                                         "BorrowerRate",
+                                         "ProsperRating..Alpha.",
+                                         "ListingCategory..numeric.",
+                                         "Occupation",
+                                         "EmploymentStatusDuration",
+                                         "DelinquenciesLast7Years",
+                                         "DebtToIncomeRatio",
+                                         "IncomeRange",
+                                         "LoanOriginalAmount",
+                                         "LoanOriginationDate")]
+
+# 整理数据
+
+# 1. 贷款状态
+table(df$LoanStatus)
+
+df$LoanStatus <- as.character(df$LoanStatus)
+
+table(df$LoanStatus)# 对Cancelled和Current的贷款不做分析
+CurrentOrCancelled <- (df$LoanStatus %in% c("Current", "Cancelled"))
+df <- df[!CurrentOrCancelled,]
+
+# 将Chargedoff和Past Due合并到Defaulted
+PastDueItems <- c("Past Due (>120 days)",
+                  "Past Due (1-15 days)",
+                  "Past Due (16-30 days)",
+                  "Past Due (31-60 days)",
+                  "Past Due (61-90 days)",
+                  "Past Due (91-120 days)")
+df$LoanStatus[df$LoanStatus %in% PastDueItems] <- "Defaulted"
+df$LoanStatus[df$LoanStatus == "Chargedoff"] <- "Defaulted"
+
+# 将FinalPaymentInProgress合并到Completed
+df$LoanStatus[df$LoanStatus == "FinalPaymentInProgress"] <- "Completed"
+
+# 2. 信用评级
+# 2009年7月1日，Prosper的信用评级模型发生了变化
+# 数据集中有中CreditGrade（2009年7月1日前客户的信用评级）和ProsperRating..Alpha.（2009年7月1日后的信用评级）两个变量
+# 这里我将ProsperRating..Alpha.的值赋给CreditGrade
+
+df$LoanOriginationDate <- as.Date(df$LoanOriginationDate)
+df$CreditGrade[df$LoanOriginationDate >= "2009-07-01"] <- subset(df, LoanOriginationDate >= "2009-07-01")$ProsperRating..Alpha.
+
+df$CreditGrade <- ordered(df$CreditGrade,
+                           levels = c("NC", "HR", "E", "D", "C", "B", "A", "AA"))
+
+# 清理
+DropColumns <- c("ProsperRating..Alpha.", "CreditScoreRangeLower", "CreditScoreRangeUpper")
+df = df[,!(names(df) %in% DropColumns)]
+
+# 设置默认主题样式
+th <- theme(
+    plot.title = element_text(family="PingFang SC", color="red", size=16, face="bold", hjust=0.5)
+  )
+```
+
+该报告分析了共14个变量，57356条数据。
+
+```{r}
+dim(df)
+```
+
+```{r}
+str(df)
+```
+
+# 单变量探索
+
+### 信用评级
+```{r}
+ggplot(df, aes(x = CreditGrade)) +
+  geom_bar() +
+  geom_text(stat='count',aes(label=..count..),vjust=-0.5) +
+  ggtitle("客户信用评级") +
+  th
+```
+
+贷款的信用评级分布较平均，各等级间的数量差距不明显。
+
+### 贷款期限
+```{r}
+ggplot(df, aes(x = as.factor(Term))) +
+  geom_bar() +
+  geom_text(stat='count',aes(label=..count..),vjust=-0.5) +
+  ggtitle("贷款期限（月）") +
+  xlab("Term") +
+  th
+```
+
+Prosper平台上的贷款以中长期为主，且三年期占绝大多数。
+
+### 贷款状态
+```{r}
+ggplot(df, aes(x=LoanStatus)) +
+  geom_bar() +
+  geom_text(stat='count',aes(label=..count..),vjust=-0.5) +
+  ggtitle("贷款状态") +
+  th
+```
+
+Prosper平台上的违规率在33.2%左右，还是蛮高的。
+
+### 贷款利率
+```{r fig.width=16}
+ggplot(df, aes(x=BorrowerRate)) +
+  geom_histogram(binwidth = 0.01) +
+  scale_x_continuous(breaks = seq(0, 0.5, 0.05)) +
+  facet_wrap(~Term) +
+  ggtitle("贷款利率") +
+  th
+```
+
+平台上的借款利率多集中在0.06至0.35这个区间。贷款利率似乎与贷款期限关系不明显，未出现如经验判断的“期限越长，利率越高”。
+
+### 贷款用途
+```{r}
+# 0 - Not Available, 1 - Debt Consolidation, 2 - Home Improvement, 3 - Business, 4 - Personal Loan, 5 - Student Use, 6 - Auto, 7- Other, 8 - Baby&Adoption, 9 - Boat, 10 - Cosmetic Procedure, 11 - Engagement Ring, 12 - Green
+ListingCategories <- df %>% 
+    group_by(ListingCategory..numeric.) %>% 
+    summarise(n = n())
+
+ggplot(ListingCategories, aes(x=reorder(ListingCategory..numeric., -n), y=n)) +
+  geom_bar(stat="identity") +
+  xlab("ListingCategory") +
+  ggtitle("借款用途") + th
+```
+
+大部分人在申请贷款时选择了1-Debt Consolidation，有可能是默认项，猜测借款用途可能没有分析意义。
+
+### 过去7年违约次数
+```{r}
+ggplot(df, aes(x=DelinquenciesLast7Years)) +
+  geom_density(fill = I("grey")) +
+  coord_cartesian(xlim = c(0, quantile(df$DelinquenciesLast7Years, probs = 0.90, "na.rm" = TRUE))) +
+  ggtitle("过去7年违约次数") +
+  th
+```
+
+大部分借款人在过去7年的违约次数是0，说明Prosper平台借款人的信用状况较好。
+
+### 债务收入比
+```{r}
+ggplot(df, aes(x=DebtToIncomeRatio)) +
+  geom_histogram(binwidth = 0.05) +
+  scale_x_continuous(breaks = seq(0, 10, 0.5), limits = c(0, 2)) +
+  geom_vline(xintercept = quantile(df$DebtToIncomeRatio, probs = 0.95, na.rm = TRUE),
+             linetype = "dashed", color = "red") +
+  ggtitle("债务收入比") +
+  th
+```
+
+95%的借款人的负债收入比小于0.5，说明Prosper平台借款人的资质较好。
+
+### 月收入范围
+```{r fig.width=16}
+ggplot(df, aes(x=IncomeRange)) +
+  geom_bar() +
+  geom_text(stat='count',aes(label=..count..),vjust=-0.5) +
+  ggtitle("月收入") +
+  th
+```
+
+大部分借款人的月收入在25000至50000区间。
+
+### 借款人职业
+```{r fig.width=16}
+OccupationCounts <- df %>% 
+    group_by(Occupation) %>% 
+    summarise(n = n())
+
+ggplot(OccupationCounts, aes(x=reorder(Occupation, -n), y=n)) +
+  geom_bar(stat="identity") +
+  xlab("Occupation") +
+  theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1)) +
+  ggtitle("借款人职业") + th
+```
+
+Prosper平台上选择“Other”的借款人最多，说明很多人并没有选择真实的职业。
+
+## 单变量分析结论
+
+### 你的数据集结构是什么？
+
+见报告开头
+
+### 你感兴趣的问题是什么？
+- 哪些人贷款后会按时还款，哪些人会赖账
+- 贷款利率的趋势
+- Prosper平台的发展情况是否良好
+
+### 你是否创建了新变量？
+没有
+
+### 在已经探索的特征中，是否存在异常分布？你是否对数据进行了一些清洁、调整或改变数据的形式？如果有，你为什么会这样做？
+做了一些清理和整洁方面的操作，可以参照上面的代码
+
+# 双变量分析
+
+### 信用评级与违约的关系
+```{r}
+ggplot(df, aes(x=CreditGrade, fill=LoanStatus)) +
+  geom_bar(position="dodge") +
+  ggtitle("信用评级与违约的关系") + th
+```
+
+平台信用评级越高的人，违约的可能性越低。符合人们经验的判断。
+
+### 贷款期限与违约的关系
+```{r}
+ggplot(df, aes(x=as.factor(Term), fill=LoanStatus)) +
+  geom_bar() +
+  xlab("Term") +
+  ggtitle("贷款期限与违约的关系") + th
+```
+
+- 一年期的还款完成度最高；
+- 五年期的贷款有一半左右的违约情况出现；
+- 三年期的贷款也出现了三成以上的违约率；
+- 可以看出短期贷款的违约率更低
+
+### 贷款利率与违约的关系
+```{r}
+ggplot(df, aes(x=LoanStatus, y=BorrowerRate)) +
+  geom_boxplot() +
+  ggtitle("贷款利率与违约的关系") + th
+```
+
+违约贷款的利率明显高于按时还款的部分。一方面，贷款利率高是由于用户自身的资质差；另一方面，高利率又使得用户更加难以承受而违约。
+
+### 借款人收入与违约的关系
+```{r}
+ggplot(df, aes(x=IncomeRange, fill=LoanStatus)) +
+  geom_bar(position="dodge") +
+  ggtitle("借款人收入与违约的关系") + th
+```
+
+随着年收入的增加，违约比例在逐渐下降。
+
+### 工作时长与违约的关系
+```{r}
+ggplot(df, aes(x=EmploymentStatusDuration, fill=LoanStatus)) +
+  geom_histogram(binwidth = 6) +
+  xlim(0, 360) +
+  ggtitle("工作时长与违约的关系") + th
+```
+
+随着工作年限的增长，违约率逐渐下降。
+
+### 债务收入比与违约的关系
+```{r}
+ggplot(df, aes(x=DebtToIncomeRatio, fill=LoanStatus)) +
+  geom_histogram(binwidth = 0.05) +
+  scale_x_continuous(breaks = seq(0, 10, 0.5), limits = c(0, 2)) +
+  geom_vline(xintercept = quantile(df$DebtToIncomeRatio, probs = 0.95, na.rm = TRUE),
+             linetype = "dashed", color = "red") +
+  ggtitle("债务收入比与违约的关系") + th
+```
+
+债务收入比越低的人更具有还款能力，平台整体的用户债务收入比小于0.6，资质很好。
+
+## 双变量分析结论
+
+- 信用评级越低，违约率也很高
+- 借款时利率越高，违约的情况越多
+- 贷款期限越长，越容易出现违约的情况
+- 工作时间越长和收入越高，出现违约的可能性越小
+- 债务收入比越低，越具有还款能力
+
+# 多变量分析
+
+### 借款利率、信用评级与违约的关系
+```{r}
+ggplot(df, aes(x=CreditGrade, y=BorrowerRate, color=LoanStatus)) +
+  geom_jitter(alpha=0.5)
+```
+
+信用评分越高，利率越低，违约率也越低；反之信用评分越高，利率也越高，违约率也越高。
+
+### 借款利率、借款金额与违约的关系
+```{r}
+ggplot(df, aes(x=LoanOriginalAmount, y=BorrowerRate, color=LoanStatus)) +
+  geom_jitter(alpha=0.4)
+```
+
+- 平台以小额贷款为主；
+- 贷款金额越小，利率越低，违约率也越低；反之贷款金额越大，利率越高，违约率也越高。
+
+### 借款利率、贷款期限与违约的关系
+```{r}
+ggplot(df, aes(x=as.factor(Term), y=BorrowerRate, color=LoanStatus)) +
+  geom_jitter(alpha=0.5) +
+  xlab("Term")
+```
+
+贷款期限越短，利率越低，违约率也越低；相同的利率下，贷款期限越短，违约率越低。
+
+### 借款利率、收入范围与违约的关系
+```{r}
+ggplot(df, aes(x=IncomeRange, y=BorrowerRate, color=LoanStatus)) +
+  geom_jitter(alpha=0.5)
+```
+
+收入越高，贷款利率越低，违约率也略低；相同利率下，收入越高，违约率越低。
+
+## 多变量分析结论
+
+- 信用评分越高，利率越低，违约率也越低
+- 随着贷款金额越大，利率也越高，违约率变高
+- 贷款期限越短，利率越低，违约率也越低；相同的利率下，贷款期限越短，违约率越低
+- 收入越高，贷款利率越低，违约率也略低；相同利率下，收入越高，违约率越低
+
+# 最终图与总结
+
+### 图一
+```{r echo=FALSE, Plot_One}
+ggplot(df, aes(x = CreditGrade)) +
+  geom_bar(color = "black", fill = "#1F6393") +
+  geom_text(stat="count",aes(label=..count..),vjust=-0.5) +
+  ggtitle("信用评级分布") +
+  th
+```
+
+### 描述一
+
+信用评级以D居多，分布接近正态分布。
+
+### 图二
+```{r echo=FALSE, Plot_Two}
+ggplot(df, aes(x=CreditGrade, fill=LoanStatus)) +
+  geom_bar(position="dodge") +
+  ggtitle("信用评级与违约的关系") + th
+```
+
+### Description Two
+
+信用评级越高，违约率就越低；相反的信用评级越低，越会出现违约的情况。
+
+### 图三
+```{r echo=FALSE, Plot_Three}
+ggplot(df, aes(x=CreditGrade, y=BorrowerRate, color=LoanStatus)) +
+  geom_jitter(alpha=0.5) +
+  ggtitle("借款利率、信用评级与违约的关系") + th
+```
+
+### 描述三
+
+信用评级越高，借款利率越低，违约率也越低；相同利率下，信用等级越高，违约率越低。
+
+------
+
+# 反思
+
+数据分析要做的是清理数据和数据探索，但在做数据清理之前，很多的时间是花在了对数据集里各个变脸的理解，这才是探索性数据分析的难点，数据分析本身可能是加深对业务的理解。
+
+在探索阶段，在绘图过程中，选择合适的图形也是一个难点。
