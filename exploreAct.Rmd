@@ -63,23 +63,24 @@ df$LoanStatus[df$LoanStatus == "FinalPaymentInProgress"] <- "Completed"
 
 # 2. 信用评级
 # 2009年7月1日，Prosper的信用评级模型发生了变化
-# 数据集中有中CreditGrade（2009年7月1日前客户的信用评级）和ProsperRating..Alpha.（2009年7月1日后的信用评级）两个变量
+# 数据集中有中CreditGrade（2009年7月1日前客户的信用评级）和ProsperRating..Alpha.
+#（2009年7月1日后的信用评级）两个变量
 # 这里我将ProsperRating..Alpha.的值赋给CreditGrade
 
 df$LoanOriginationDate <- as.Date(df$LoanOriginationDate)
-df$CreditGrade[df$LoanOriginationDate >= "2009-07-01"] <- subset(df, LoanOriginationDate >= "2009-07-01")$ProsperRating..Alpha.
+df$CreditGrade[df$LoanOriginationDate >= "2009-07-01"] <- subset(
+  df, LoanOriginationDate >= "2009-07-01")$ProsperRating..Alpha.
 
-df$CreditGrade <- ordered(df$CreditGrade,
-                           levels = c("NC", "HR", "E", "D", "C", "B", "A", "AA"))
+df$CreditGrade <- ordered(
+  df$CreditGrade, levels = c("NC", "HR", "E", "D", "C", "B", "A", "AA"))
 
 # 清理
-DropColumns <- c("ProsperRating..Alpha.", "CreditScoreRangeLower", "CreditScoreRangeUpper")
+DropColumns <- c("ProsperRating..Alpha.")
 df = df[,!(names(df) %in% DropColumns)]
 
 # 设置默认主题样式
-th <- theme(
-    plot.title = element_text(family="PingFang SC", color="red", size=16, face="bold", hjust=0.5)
-  )
+th <- theme(plot.title = element_text(family="PingFang SC", color="red", 
+                                      size=16, face="bold", hjust=0.5))
 ```
 
 该报告分析了共14个变量，57356条数据。
@@ -159,7 +160,8 @@ ggplot(ListingCategories, aes(x=reorder(ListingCategory..numeric., -n), y=n)) +
 ```{r}
 ggplot(df, aes(x=DelinquenciesLast7Years)) +
   geom_density(fill = I("grey")) +
-  coord_cartesian(xlim = c(0, quantile(df$DelinquenciesLast7Years, probs = 0.90, "na.rm" = TRUE))) +
+  coord_cartesian(xlim = c(0, quantile(
+    df$DelinquenciesLast7Years, probs = 0.90, "na.rm" = TRUE))) +
   ggtitle("过去7年违约次数") +
   th
 ```
@@ -171,7 +173,8 @@ ggplot(df, aes(x=DelinquenciesLast7Years)) +
 ggplot(df, aes(x=DebtToIncomeRatio)) +
   geom_histogram(binwidth = 0.05) +
   scale_x_continuous(breaks = seq(0, 10, 0.5), limits = c(0, 2)) +
-  geom_vline(xintercept = quantile(df$DebtToIncomeRatio, probs = 0.95, na.rm = TRUE),
+  geom_vline(xintercept = quantile(
+    df$DebtToIncomeRatio, probs = 0.95, na.rm = TRUE),
              linetype = "dashed", color = "red") +
   ggtitle("债务收入比") +
   th
@@ -180,11 +183,12 @@ ggplot(df, aes(x=DebtToIncomeRatio)) +
 95%的借款人的负债收入比小于0.5，说明Prosper平台借款人的资质较好。
 
 ### 月收入范围
-```{r fig.width=16}
+```{r}
 ggplot(df, aes(x=IncomeRange)) +
   geom_bar() +
   geom_text(stat='count',aes(label=..count..),vjust=-0.5) +
   ggtitle("月收入") +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
   th
 ```
 
@@ -259,7 +263,8 @@ ggplot(df, aes(x=LoanStatus, y=BorrowerRate)) +
 ```{r}
 ggplot(df, aes(x=IncomeRange, fill=LoanStatus)) +
   geom_bar(position="dodge") +
-  ggtitle("借款人收入与违约的关系") + th
+  ggtitle("借款人收入与违约的关系") + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) + th
 ```
 
 随着年收入的增加，违约比例在逐渐下降。
@@ -279,7 +284,8 @@ ggplot(df, aes(x=EmploymentStatusDuration, fill=LoanStatus)) +
 ggplot(df, aes(x=DebtToIncomeRatio, fill=LoanStatus)) +
   geom_histogram(binwidth = 0.05) +
   scale_x_continuous(breaks = seq(0, 10, 0.5), limits = c(0, 2)) +
-  geom_vline(xintercept = quantile(df$DebtToIncomeRatio, probs = 0.95, na.rm = TRUE),
+  geom_vline(xintercept = quantile(
+    df$DebtToIncomeRatio, probs = 0.95, na.rm = TRUE),
              linetype = "dashed", color = "red") +
   ggtitle("债务收入比与违约的关系") + th
 ```
@@ -304,6 +310,14 @@ ggplot(df, aes(x=CreditGrade, y=BorrowerRate, color=LoanStatus)) +
 
 信用评分越高，利率越低，违约率也越低；反之信用评分越高，利率也越高，违约率也越高。
 
+### 借款金额、信用评级与违约的关系
+```{r}
+ggplot(df, aes(x=LoanOriginalAmount, y=CreditGrade, color=LoanStatus)) +
+  geom_jitter(alpha=0.5)
+```
+
+信用评级越高，贷款金额越小，违约率也越低；在相同的信用评级上，随着贷款金额的增加，违约率也在提高。
+
 ### 借款利率、借款金额与违约的关系
 ```{r}
 ggplot(df, aes(x=LoanOriginalAmount, y=BorrowerRate, color=LoanStatus)) +
@@ -325,7 +339,8 @@ ggplot(df, aes(x=as.factor(Term), y=BorrowerRate, color=LoanStatus)) +
 ### 借款利率、收入范围与违约的关系
 ```{r}
 ggplot(df, aes(x=IncomeRange, y=BorrowerRate, color=LoanStatus)) +
-  geom_jitter(alpha=0.5)
+  geom_jitter(alpha=0.5) +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
 ```
 
 收入越高，贷款利率越低，违约率也略低；相同利率下，收入越高，违约率越低。
@@ -341,16 +356,14 @@ ggplot(df, aes(x=IncomeRange, y=BorrowerRate, color=LoanStatus)) +
 
 ### 图一
 ```{r echo=FALSE, Plot_One}
-ggplot(df, aes(x = CreditGrade)) +
-  geom_bar(color = "black", fill = "#1F6393") +
-  geom_text(stat="count",aes(label=..count..),vjust=-0.5) +
-  ggtitle("信用评级分布") +
-  th
+ggplot(df, aes(x=LoanOriginalAmount, y=CreditGrade, color=LoanStatus)) +
+  geom_jitter(alpha=0.5) +
+  ggtitle("贷款金额、信用评级与违约的关系") + th
 ```
 
 ### 描述一
 
-信用评级以D居多，分布接近正态分布。
+信用评级越高，贷款金额越小，违约率也越低；在相同的信用评级上，随着贷款金额的增加，违约率也在提高。
 
 ### 图二
 ```{r echo=FALSE, Plot_Two}
@@ -378,6 +391,16 @@ ggplot(df, aes(x=CreditGrade, y=BorrowerRate, color=LoanStatus)) +
 
 # 反思
 
-数据分析要做的是清理数据和数据探索，但在做数据清理之前，很多的时间是花在了对数据集里各个变脸的理解，这才是探索性数据分析的难点，数据分析本身可能是加深对业务的理解。
+### 分析过程中遇到的难点？
 
-在探索阶段，在绘图过程中，选择合适的图形也是一个难点。
+1. 理解原始数据集包含的81个变量
+2. 在理解数据集的基础上提出感兴趣的问题
+3. 围绕感兴趣的问题来精简变量至14个
+
+### 分析过程中成功的发现部分？
+
+在理解数据变量信用评级`CreditGrade`的时候，注意到在2009年7月这个时间点前后，使用的变量发生了改变，在2009年7月之前使用的是 `CreditGrade`，而之后则使用了`ProsperRating..Alpha.`；这个我处理的方式是将2009年7月之后的信用评级变量`CreditGrade`使用`ProsperRating..Alpha.`来填充。
+
+### 未来如何进一步丰富分析内容和提高报告质量？
+
+希望能收集到更多的一年期限的数据，这样可能更好看的是否一年期贷款的还款率更好，这样更有利于指导公司是否应该去引导很多的用户选择一年期的贷款。
